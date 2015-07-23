@@ -24,12 +24,9 @@ public class AWSManager {
     private String dbPass;
     private String dbName;
     private String clusterName;
-    private Connection conn = null;
-    private Statement stmt = null;
     private Properties properties = new Properties();
     private BasicAWSCredentials credentials;
     private AmazonMachineLearningClient machineLearningClient;
-    private AmazonS3Client s3Client;
     private String outputUri;
     private String unloadPath;
     private String s3Source;
@@ -38,63 +35,67 @@ public class AWSManager {
     private String endPoint;
 
     AWSManager() {
-        getConfig();
+        readProperties();
         credentials = new BasicAWSCredentials(access_key_id, access_key);
         machineLearningClient = new AmazonMachineLearningClient(credentials);
     }
 
-    private String readProperties(String key) {
+    private void readProperties() {
         String returnString = "";
+        InputStream inputStream;
         try {
-            InputStream inputStream;
             inputStream = getClass().getClassLoader().getResourceAsStream("config.properties");
             properties.load(inputStream);
-            returnString = properties.getProperty(key);
+            dbURL = properties.getProperty("dbURL");
+            dbName = properties.getProperty("dbName");
+            dbUser = properties.getProperty("dbUser");
+            dbPass = properties.getProperty("dbPass");
+            access_key = properties.getProperty("accessKey");
+            access_key_id = properties.getProperty("accessKeyId");
+            bucketName = properties.getProperty("bucketName");
+            s3Source = properties.getProperty("s3Source");
+            mlRoleARN = properties.getProperty("mlRoleARN");
+            clusterName = properties.getProperty("clusterName");
+            mlStage = properties.getProperty("mlStage");
+            outputUri = properties.getProperty("outputUri");
+            endPoint = properties.getProperty("endPoint");
         } catch (IOException e) {
             e.printStackTrace();
+
+        } finally {
+            inputStream.close();
         }
-        return returnString;
+
     }
 
-    public void getConfig() {
-        dbURL = readProperties("dbURL");
-        dbName = readProperties("dbName");
-        dbUser = readProperties("dbUser");
-        dbPass = readProperties("dbPass");
-        access_key = readProperties("accessKey");
-        access_key_id = readProperties("accessKeyId");
-        bucketName = readProperties("bucketName");
-        s3Source = readProperties("s3Source");
-        mlRoleARN = readProperties("mlRoleARN");
-        clusterName = readProperties("clusterName");
-        mlStage = readProperties("mlStage");
-        outputUri = readProperties("outputUri");
-        endPoint = readProperties("endPoint");
-    }
 
     public void uploadToS3(String filePath, String fileId) {
+        AmazonS3Client s3Client = new AmazonS3Client();
         s3Client = new AmazonS3Client(credentials);
         File file = new File(filePath);
         PutObjectRequest objectRequest = new PutObjectRequest(bucketName, fileId, file);
         s3Client.putObject(objectRequest);
     }
 
-    public ResultSet executeSQL(String sqlString)  {
-        ResultSet resultSet=null;
+    public ResultSet executeSQL(String sqlString) {
+        ResultSet resultSet = null;
+        Connection conn = null;
+        Statement stmt = null;
         try {
             Class.forName("com.amazon.redshift.jdbc4.Driver");
             conn = DriverManager.getConnection(dbURL, dbUser, dbPass);
             stmt = conn.createStatement();
             resultSet = stmt.executeQuery(sqlString);
             resultSet.next();
-        }
-        catch (Exception e){
+        } catch (Exception e) {
             e.printStackTrace();
         }
         return resultSet;
     }
 
     public void executeDDL(String ddlString) {
+        Connection conn = null;
+        Statement stmt = null;
         try {
             Class.forName("com.amazon.redshift.jdbc4.Driver");
             conn = DriverManager.getConnection(dbURL, dbUser, dbPass);
@@ -102,8 +103,7 @@ public class AWSManager {
             stmt.execute(ddlString);
             stmt.close();
             conn.close();
-        }
-        catch (Exception e){
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
@@ -139,21 +139,22 @@ public class AWSManager {
                 .withComputeStatistics(false)
                 .withDataSourceId(dataSourceId)
                 .withDataSpec(dataSpec);
-        System.out.println(request.toString());
+
         machineLearningClient.createDataSourceFromRedshift(request);
     }
 
-    public void createMLModel(String trainingDataSourceId, String modelId) {
+    public void createMLModel(String trainingDataSourceId, String modelId, MLModelType modelType) {
 
         CreateMLModelRequest mlModelRequest = new CreateMLModelRequest()
-                .withMLModelType(MLModelType.MULTICLASS)
+                .withMLModelType(modelType
+                )
                 .withMLModelId(modelId)
                 .withTrainingDataSourceId(trainingDataSourceId);
-        System.out.println(mlModelRequest.toString());
+
         machineLearningClient.createMLModel(mlModelRequest);
     }
 
-    public void predictBatchFromDSource(String dataSourceId,String modelId,String predictionId){
+    public void predictBatchFromDSource(String dataSourceId, String modelId, String predictionId) {
         CreateBatchPredictionRequest batchPredictionRequest = new CreateBatchPredictionRequest()
                 .withMLModelId(modelId)
                 .withBatchPredictionId(predictionId)
